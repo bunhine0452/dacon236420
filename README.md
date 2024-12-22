@@ -223,3 +223,181 @@ self.transform = Compose([
    - 데이터 증강 활성화
    - 에폭 수 증가
    - 모델 구조 수정
+
+## 데이터 증강 (Data Augmentation)
+
+### 구현된 데이터 증강 기법
+1. **기하학적 변환**
+   - `HorizontalFlip`: 좌우 반전 (p=0.5)
+   - `VerticalFlip`: 상하 반전 (p=0.5)
+   - `RandomRotate90`: 90도 회전 (p=0.5)
+
+2. **색상 및 밝기 변환**
+   - `RandomBrightnessContrast`: 
+     * 밝기 변화: ±20%
+     * 대비 변화: ±20%
+     * 적용 확률: 50%
+   - `ColorJitter`:
+     * 밝기, 대비, 채도: ±20%
+     * 색조: ±10%
+     * 적용 확률: 30%
+
+3. **노이즈 및 블러**
+   - `GaussianBlur`: 
+     * 블러 커널 크기: 3~7
+     * 적용 확률: 30%
+   - `GaussNoise`:
+     * 노이즈 강도: 10.0~50.0
+     * 적용 확률: 30%
+
+### 데이터 증강 사용 방법
+- 학습 시작 시 데이터 증강 사용 여부 선택 가능
+- 검증 데이터에는 증강이 적용되지 않음
+- 각 증강 기법은 지정된 확률로 독립적으로 적용
+
+### 데이터 증강 최적화 방법
+1. **증강 강도 조절**
+   - 각 변환의 범위를 조절하여 적절한 강도 설정
+   - 너무 강한 변환은 오히려 성능을 저하시킬 수 있음
+
+2. **적용 확률 조정**
+   - 각 증강 기법의 적용 확률(p)을 조절
+   - 데이터셋 특성에 따라 최적의 확률 설정
+
+3. **선택적 적용**
+   - 특정 증강 기법을 활성화/비활성화
+   - 데이터셋과 태스크에 적합한 증강 기법 선택
+
+## U-Net 모델 구조
+
+### 구현된 U-Net 구조
+1. **인코더 (Encoder)**
+   - 4단계의 다운샘플링
+   - 각 단계:
+     * Double Convolution (3x3 conv + BN + ReLU)
+     * MaxPooling (2x2)
+   - 채널 크기: 64 → 128 → 256 → 512
+
+2. **병목 (Bottleneck)**
+   - Double Convolution
+   - 채널 크기: 512 → 1024
+
+3. **디코더 (Decoder)**
+   - 4단계의 업샘플링
+   - 각 단계:
+     * Transposed Convolution (2x2)
+     * Skip Connection으로 인코더 특징과 결합
+     * Double Convolution
+   - 채널 크기: 1024 → 512 → 256 → 128 → 64
+
+4. **출력 레이어**
+   - 1x1 Convolution
+   - Sigmoid 활성화 함수
+   - 출력: 3채널 RGB 이미지
+
+### Skip Connection
+- 인코더의 특징을 디코더로 직접 전달
+- 고해상도 특징 보존
+- 그래디언트 소실 문제 완화
+
+### 활성화 함수
+- 내부: ReLU (Rectified Linear Unit)
+- 출력: Sigmoid (0-1 범위의 픽셀값)
+
+### 정규화
+- Batch Normalization: 각 합성곱 레이어 후 적용
+- 학습 안정화 및 속도 향상
+
+### 개선 가능한 부분
+1. **구조 개선**
+   - Attention 메커니즘 추가
+   - Residual Connection 도입
+   - 더 깊은 네트워크 구조
+
+2. **활성화 함수**
+   - LeakyReLU 사용
+   - ELU 실험
+   - PReLU 적용
+
+3. **정규화 기법**
+   - Instance Normalization
+   - Layer Normalization
+   - Group Normalization
+
+4. **손실 함수**
+   - Perceptual Loss 가중치 조정
+   - Style Loss 추가
+   - Total Variation Loss 도입
+
+## 개선된 U-Net 모델 (Improved U-Net)
+
+### 주요 개선사항
+
+1. **Attention 메커니즘**
+   - Attention Gate 추가로 중요 특징에 집중
+   - 각 디코더 레벨에 적용되어 세부 정보 보존 강화
+   - 공간적 주의 집중으로 더 정확한 복원 가능
+
+2. **Squeeze-and-Excitation (SE) 블록**
+   - 채널 간 상호작용 모델링
+   - 중요 특징 맵 강조
+   - 각 DoubleConv 블록 후에 적용
+
+3. **Residual Connection**
+   - 그래디언트 소실 문제 완화
+   - 더 깊은 네트워크 학습 가능
+   - 각 레벨에 residual block 추가
+
+4. **향상된 정규화 및 활성화**
+   - BatchNorm → InstanceNorm 변경
+   - ReLU → LeakyReLU (0.2) 사용
+   - 더 안정적인 학습과 성능 향상
+
+### 최적화된 학습 전략
+
+1. **개선된 옵티마이저**
+   - AdamW 사용 (weight decay 포함)
+   - L2 정규화로 과적합 방지
+   - 가중치 감쇠: 0.01
+
+2. **고급 학습률 스케줄링**
+   - Cosine Annealing with Warm Restarts
+   - 주기적인 학습률 재시작
+   - 더 나은 지역 최적해 탈출
+
+3. **손실 함수 조합**
+   - L1 Loss: 픽셀 단위 복원
+   - Perceptual Loss: 고수준 특징 보존
+   - Style Loss: 텍스처 품질 향상
+
+### 성능 향상 포인트
+
+1. **이미지 품질**
+   - 더 선명한 경계선
+   - 자연스러운 색상 복원
+   - 세부 디테일 보존
+
+2. **학습 안정성**
+   - 그래디언트 소실 감소
+   - 더 안정적인 학습 곡선
+   - 수렴 속도 향상
+
+3. **메모리 효율성**
+   - Instance Normalization 사용으로 배치 크기 의존성 감소
+   - 최적화된 네트워크 구조
+   - 효율적인 attention 연산
+
+### 하이퍼파라미터 가이드
+
+1. **학습률 설정**
+   - 초기 학습률: 0.001
+   - 최소 학습률: 1e-6
+   - Warm Restart 주기: 10 에폭
+
+2. **정규화 강도**
+   - Weight Decay: 0.01
+   - Dropout: 사용하지 않음 (Instance Norm과 SE 블록이 충분한 정규화 제공)
+
+3. **배치 크기**
+   - GPU 메모리에 따라 32-64 권장
+   - Instance Normalization으로 작은 배치에서도 안정적

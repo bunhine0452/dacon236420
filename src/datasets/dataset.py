@@ -5,11 +5,12 @@ import pandas as pd
 from torch.utils.data import Dataset
 from albumentations import (
     Compose, Resize, HorizontalFlip, VerticalFlip,
-    RandomBrightnessContrast
+    RandomBrightnessContrast, RandomRotate90,
+    GaussianBlur, GaussNoise, ColorJitter
 )
 
 class ImageDataset(Dataset):
-    def __init__(self, csv_file, transform=None, train=True, val=False, img_size=128, use_augmentation=False):
+    def __init__(self, csv_file, transform=None, train=True, val=False, img_size=128, use_augmentation=False, subset_fraction=1.0):
         """
         Args:
             csv_file (str): 데이터셋 CSV 파일 경로
@@ -18,8 +19,15 @@ class ImageDataset(Dataset):
             val (bool): 검증 데이터셋 여부
             img_size (int): 이미지 크기
             use_augmentation (bool): 데이터 증강 사용 여부
+            subset_fraction (float): 사용할 데이터의 비율 (0.0 ~ 1.0)
         """
+        # CSV 파일 읽기
         self.data = pd.read_csv(csv_file)
+        
+        # 전체 데이터 중 일부만 사용
+        if subset_fraction < 1.0:
+            self.data = self.data.sample(frac=subset_fraction, random_state=42)
+        
         if val:
             # 20%를 검증 데이터로 사용
             self.data = self.data.sample(frac=0.2, random_state=42)
@@ -36,9 +44,29 @@ class ImageDataset(Dataset):
             if train and not val and use_augmentation:
                 self.transform = Compose([
                     Resize(img_size, img_size, always_apply=True),
-                    HorizontalFlip(p=0.5),
-                    VerticalFlip(p=0.5),
-                    RandomBrightnessContrast(p=0.5),
+                    HorizontalFlip(p=0.5),           # 좌우 반전
+                    VerticalFlip(p=0.5),             # 상하 반전
+                    RandomRotate90(p=0.5),           # 90도 회전
+                    RandomBrightnessContrast(
+                        brightness_limit=0.2,         # 밝기 변화 범위
+                        contrast_limit=0.2,          # 대비 변화 범위
+                        p=0.5
+                    ),
+                    GaussianBlur(
+                        blur_limit=(3, 7),           # 블러 커널 크기
+                        p=0.3
+                    ),
+                    GaussNoise(
+                        var_limit=(10.0, 50.0),      # 노이즈 강도
+                        p=0.3
+                    ),
+                    ColorJitter(
+                        brightness=0.2,              # 밝기 변화
+                        contrast=0.2,                # 대비 변화
+                        saturation=0.2,              # 채도 변화
+                        hue=0.1,                     # 색조 변화
+                        p=0.3
+                    )
                 ])
             else:
                 self.transform = Compose([

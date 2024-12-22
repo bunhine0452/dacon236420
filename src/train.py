@@ -9,7 +9,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 from datasets.dataset import ImageDataset
-from models.unet import UNet
+from models.unet import ImprovedUNet
 from models.losses import CombinedLoss
 
 def get_device():
@@ -217,10 +217,10 @@ def main():
             print("잘못된 입력입니다. 'y' 또는 'n'을 입력해주세요.")
         
         # 모델 설정
-        model = UNet().to(device)
+        model = ImprovedUNet().to(device)
         if device.type == 'cuda' and torch.__version__ >= "2.0.0":
             try:
-                model = torch.compile(model, mode='reduce-overhead')  # 컴파일 모드 최적화
+                model = torch.compile(model, mode='reduce-overhead')
                 print("Model compilation successful")
             except Exception as e:
                 print(f"Model compilation failed: {str(e)}")
@@ -230,8 +230,17 @@ def main():
             torch.cuda.empty_cache()
         
         criterion = CombinedLoss().to(device)
-        optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5)
+        optimizer = optim.AdamW(
+            model.parameters(),
+            lr=learning_rate,
+            weight_decay=0.01
+        )
+        scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            optimizer,
+            T_0=10,
+            T_mult=2,
+            eta_min=1e-6
+        )
         
         # Mixed Precision Training을 위한 scaler (CUDA only)
         scaler = GradScaler() if device.type == 'cuda' else None
@@ -258,7 +267,7 @@ def main():
             print(f'Validation Loss: {val_loss:.4f}')
             
             # 학습률 조정
-            scheduler.step(val_loss)
+            scheduler.step()
             
             # 체크포인트 저장
             if val_loss < best_val_loss:

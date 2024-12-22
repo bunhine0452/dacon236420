@@ -11,3 +11,4 @@ data/*
 # 예외 처리를 하고 싶은 경우 (선택사항)
 !data/.gitkeep 
 .DS_Store
+checkpoints/best_model.pth
