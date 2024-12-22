@@ -131,7 +131,20 @@ def main():
             break
         print("잘못된 입력입니다. 'y' 또는 'n'을 입력해주세요.")
     
-    print(f"데이터 증강 사용: {'예' if use_augmentation else '아니오'}")
+    # 데이터셋 비율 선택
+    while True:
+        subset_input = input("전체 데이터셋 중 몇 %를 사용하시겠습니까? (1-100): ")
+        try:
+            subset_fraction = float(subset_input) / 100
+            if 0 < subset_fraction <= 1:
+                break
+            print("1에서 100 사이의 숫자를 입력해주세요.")
+        except ValueError:
+            print("올바른 숫자를 입력해주세요.")
+    
+    print(f"\n선택된 설정:")
+    print(f"- 데이터 증강 사용: {'예' if use_augmentation else '아니오'}")
+    print(f"- 사용할 데이터셋 비율: {subset_fraction*100}%")
     
     # 디바이스 설정
     device = get_device()
@@ -149,12 +162,16 @@ def main():
     try:
         # 데이터셋 및 데이터로더 설정
         train_dataset = ImageDataset('data/train.csv', train=True, val=False, 
-                                   img_size=128, use_augmentation=use_augmentation)
+                                   img_size=128, use_augmentation=use_augmentation,
+                                   subset_fraction=subset_fraction)
         val_dataset = ImageDataset('data/train.csv', train=True, val=True, 
-                                 img_size=128, use_augmentation=False)
+                                 img_size=128, use_augmentation=False,
+                                 subset_fraction=subset_fraction)
         
-        print(f"학습 데이터 크기: {len(train_dataset)}")
-        print(f"검증 데이터 크기: {len(val_dataset)}")
+        print(f"\n데이터셋 정보:")
+        print(f"- 전체 데이터 중 {subset_fraction*100}% 사용")
+        print(f"- 학습 데이터 크기: {len(train_dataset)}")
+        print(f"- 검증 데이터 크기: {len(val_dataset)}")
         
         # 데이터 로딩 최적화
         train_loader = DataLoader(
