@@ -462,5 +462,23 @@ self.transform = Compose([
    - Instance Normalization으로 작은 배치에서도 안정적
   
 
+
+
+
+# 뜰수있는 오류 및 확인사항들
+- window pytorch gpu 사용할 때 cuda 버전에 맞는 pytorch 버전 재설치 : 현재 requirement 는 cpu 버전을 설치하고 있습니다.
+- window 실행 오류 시 train.py 수정.
+  ```python
+# line349
+model = torch.compile(model, mode='reduce-overhead') # 이부분을
+
+# <수정>
+model = torch.compile(model, mode='default')
+
+# 또는 주석처리
+```
+
+  
+
 #### 실행 화면 샘플
 <img width="943" alt="image" src="https://github.com/user-attachments/assets/f6b61042-1d84-4cd7-b03b-6b6e6f78a0e5" />
