@@ -469,14 +469,14 @@ self.transform = Compose([
 - window pytorch gpu 사용할 때 cuda 버전에 맞는 pytorch 버전 재설치 : 현재 requirement 는 cpu 버전을 설치하고 있습니다.
 - window 실행 오류 시 train.py 수정.
   ```python
-# line349
-model = torch.compile(model, mode='reduce-overhead') # 이부분을
+   # line349
+   model = torch.compile(model, mode='reduce-overhead') # 이부분을
 
-# <수정>
-model = torch.compile(model, mode='default')
+   # <수정>
+   model = torch.compile(model, mode='default')
 
-# 또는 주석처리
-```
+   # 또는 주석처리
+   ```
 
   
 
