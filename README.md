@@ -482,3 +482,18 @@ self.transform = Compose([
 
 #### 실행 화면 샘플
 <img width="943" alt="image" src="https://github.com/user-attachments/assets/f6b61042-1d84-4cd7-b03b-6b6e6f78a0e5" />
+
+
+
+#### Train 실행후 샘플 이미지 저장 해석:
+
+- Input (입력)
+   - 원본 컬러 이미지를 흑백으로 변환하고 일부 영역을 마스킹(검은색 영역)한 이미지 모델이 
+   - 복원해야 할 대상
+- Restored (복원)
+   - 모델이 Input을 받아서 컬러로 복원하고 마스킹된 부분을 채워넣은 결과물
+   - 모델이 예측/생성한 이미지
+- Ground Truth (정답)
+   - 원본 컬러 이미지
+   - 모델이 최대한 이 이미지와 비슷하게 복원하는 것이 목표
+   - 생성된 것이 아닌 실제 원본 이미지
