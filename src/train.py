@@ -1,5 +1,6 @@
 import os
 import platform
+import psutil
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -113,15 +114,83 @@ def plot_losses(train_losses, val_losses):
     plt.savefig('loss_plot.png')
     plt.close()
 
+def get_system_info():
+    """시스템 사양 정보를 반환합니다."""
+    cpu_info = {
+        'physical_cores': psutil.cpu_count(logical=False),
+        'total_cores': psutil.cpu_count(logical=True),
+        'max_frequency': psutil.cpu_freq().max if psutil.cpu_freq() else None,
+        'memory_total': round(psutil.virtual_memory().total / (1024.0 ** 3), 2),  # GB
+        'memory_available': round(psutil.virtual_memory().available / (1024.0 ** 3), 2)  # GB
+    }
+    
+    gpu_info = {
+        'cuda_available': torch.cuda.is_available(),
+        'device_name': torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+        'gpu_memory': None
+    }
+    
+    if torch.cuda.is_available():
+        try:
+            gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # GB
+            gpu_info['gpu_memory'] = round(gpu_memory, 2)
+        except:
+            pass
+    
+    return cpu_info, gpu_info
+
+def estimate_batch_time(device_type, cpu_info, gpu_info, img_size, batch_size):
+    """하드웨어 사양을 기반으로 배치당 예상 처리 시간을 계산합니다."""
+    base_time = 0.1  # 기본 예상 시간 (초)
+    
+    if device_type == 'cuda':
+        # GPU 성능에 따른 조정
+        if gpu_info['device_name']:
+            if 'RTX' in gpu_info['device_name']:
+                base_time *= 0.3  # RTX 카드는 더 빠름
+            elif 'GTX' in gpu_info['device_name']:
+                base_time *= 0.5  # GTX 카드
+            if gpu_info['gpu_memory'] and gpu_info['gpu_memory'] > 8:
+                base_time *= 0.8  # 고용량 GPU 메모리
+    
+    elif device_type == 'mps':
+        # Apple Silicon 기반 예측
+        base_time *= 0.6  # M1/M2 칩은 CPU보다 빠름
+    
+    else:  # CPU
+        # CPU 코어 수와 속도에 따른 조정
+        if cpu_info['physical_cores'] >= 8:
+            base_time *= 0.8
+        if cpu_info['max_frequency'] and cpu_info['max_frequency'] > 3000:
+            base_time *= 0.9
+    
+    # 이미지 크기와 배치 크기에 따른 조정
+    size_factor = (img_size / 128) ** 2  # 128x128 기준
+    batch_factor = (batch_size / 32)  # 배치 크기 32 기준
+    
+    estimated_time = base_time * size_factor * batch_factor
+    return estimated_time
+
 def main():
     # 시스템 정보 출력
     print(f"운영체제: {platform.system()}")
     print(f"Python 버전: {platform.python_version()}")
     print(f"PyTorch 버전: {torch.__version__}")
-    print(f"CUDA 사용 가능: {torch.cuda.is_available()}")
-    if torch.cuda.is_available():
-        print(f"CUDA 버전: {torch.version.cuda}")
-        print(f"사용 가능한 GPU: {torch.cuda.get_device_name(0)}")
+    
+    # 시스템 사양 확인
+    cpu_info, gpu_info = get_system_info()
+    print("\n시스템 사양:")
+    print(f"CPU 코어: {cpu_info['physical_cores']} 물리코어, {cpu_info['total_cores']} 논리코어")
+    if cpu_info['max_frequency']:
+        print(f"CPU 최대 주파수: {cpu_info['max_frequency']:.2f} MHz")
+    print(f"메모리: 전체 {cpu_info['memory_total']}GB, 사용 가능 {cpu_info['memory_available']}GB")
+    
+    print(f"\nGPU 정보:")
+    print(f"CUDA 사용 가능: {gpu_info['cuda_available']}")
+    if gpu_info['device_name']:
+        print(f"GPU: {gpu_info['device_name']}")
+        if gpu_info['gpu_memory']:
+            print(f"GPU 메모리: {gpu_info['gpu_memory']}GB")
     
     # 디이터 증강 여부 선택
     while True:
@@ -202,9 +271,17 @@ def main():
         print(f"총 에폭 수: {num_epochs}")
         
         # 예상 학습 시간 계산
-        estimated_time_per_epoch = len(train_loader) * 0.1  # 배치당 약 0.1초로 가정
+        batch_time = estimate_batch_time(
+            device.type, cpu_info, gpu_info,
+            img_size=128, batch_size=batch_size
+        )
+        estimated_time_per_epoch = len(train_loader) * batch_time
         estimated_total_time = estimated_time_per_epoch * num_epochs
-        print(f"예상 학습 시간: {estimated_total_time/60:.1f}분 (배치당 0.1초 가정)")
+        
+        print(f"\n학습 시간 예측:")
+        print(f"- 배치당 예상 시간: {batch_time:.3f}초")
+        print(f"- 에폭당 예상 시간: {estimated_time_per_epoch/60:.1f}분")
+        print(f"- 전체 예상 시간: {estimated_total_time/3600:.1f}시간 ({estimated_total_time/60:.1f}분)")
         
         # 학습 시작 확인
         while True:
