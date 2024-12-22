@@ -1,0 +1,13 @@
+# data 디렉토리의 모든 파일 무시
+data/
+data/*
+
+# 특정 파일 형식 무시 (선택사항)
+*.csv
+*.json
+*.xlsx
+*.db
+
+# 예외 처리를 하고 싶은 경우 (선택사항)
+!data/.gitkeep 
+.DS_Store
