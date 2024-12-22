@@ -8,6 +8,8 @@ from torch.utils.data import DataLoader
 from torch.cuda.amp import autocast, GradScaler
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import torchvision.utils as vutils
+import numpy as np
 
 from datasets.dataset import ImageDataset
 from models.unet import ImprovedUNet
@@ -29,23 +31,57 @@ def get_optimal_num_workers():
     else:
         return min(os.cpu_count(), 4)  # CPU 코어 수와 4 중 작은 값 사용
 
-def train(model, train_loader, criterion, optimizer, device, scaler):
+def save_sample_images(inputs, outputs, targets, epoch, save_dir='sample_images'):
+    """학습 중 샘플 이미지 저장 함수"""
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # 배치에서 최대 4개의 이미지만 선택
+    num_images = min(4, inputs.size(0))
+    
+    # 이미지 그리드 생성
+    fig, axes = plt.subplots(num_images, 3, figsize=(15, 5*num_images))
+    
+    for i in range(num_images):
+        # 입력 이미지
+        input_img = inputs[i].cpu().detach().numpy().transpose(1, 2, 0)
+        axes[i, 0].imshow(input_img)
+        axes[i, 0].set_title('Input')
+        axes[i, 0].axis('off')
+        
+        # 복원된 이미지
+        output_img = outputs[i].cpu().detach().numpy().transpose(1, 2, 0)
+        output_img = np.clip(output_img, 0, 1)
+        axes[i, 1].imshow(output_img)
+        axes[i, 1].set_title('Restored')
+        axes[i, 1].axis('off')
+        
+        # 타겟(원본) 이미지
+        target_img = targets[i].cpu().detach().numpy().transpose(1, 2, 0)
+        axes[i, 2].imshow(target_img)
+        axes[i, 2].set_title('Ground Truth')
+        axes[i, 2].axis('off')
+    
+    plt.tight_layout()
+    plt.savefig(f'{save_dir}/epoch_{epoch+1}.png')
+    plt.close()
+
+def train(model, train_loader, criterion, optimizer, device, scaler=None, save_images=False, epoch=0):
     model.train()
     total_loss = 0
     
     with tqdm(train_loader, desc='Training') as pbar:
-        for inputs, targets in pbar:
+        for batch_idx, (inputs, targets) in enumerate(pbar):
             try:
                 inputs = inputs.to(device, non_blocking=True)
                 targets = targets.to(device, non_blocking=True)
                 
-                optimizer.zero_grad(set_to_none=True)
+                optimizer.zero_grad()
                 
-                # Mixed Precision Training (CUDA only)
                 if device.type == 'cuda':
                     with autocast():
                         outputs = model(inputs)
                         loss = criterion(outputs, targets)
+                    
                     scaler.scale(loss).backward()
                     scaler.step(optimizer)
                     scaler.update()
@@ -58,6 +94,10 @@ def train(model, train_loader, criterion, optimizer, device, scaler):
                 total_loss += loss.item()
                 pbar.set_postfix({'loss': loss.item()})
                 
+                # 이미지 저장 옵션이 활성화된 경우에만 저장
+                if save_images and batch_idx == 0 and (epoch + 1) % 5 == 0:
+                    save_sample_images(inputs, outputs, targets, epoch)
+                
             except RuntimeError as e:
                 print(f"Error during training: {str(e)}")
                 if "out of memory" in str(e):
@@ -67,7 +107,7 @@ def train(model, train_loader, criterion, optimizer, device, scaler):
                     continue
                 else:
                     raise e
-            
+    
     return total_loss / len(train_loader)
 
 def validate(model, val_loader, criterion, device):
@@ -211,9 +251,18 @@ def main():
         except ValueError:
             print("올바른 숫자를 입력해주세요.")
     
+    # 학습 중 이미지 생성 여부 선택
+    while True:
+        save_images_input = input("학습 중 샘플 이미지를 생성하시겠습니까? (y/n): ").lower()
+        if save_images_input in ['y', 'n']:
+            save_images = (save_images_input == 'y')
+            break
+        print("잘못된 입력입니다. 'y' 또는 'n'을 입력해주세요.")
+    
     print(f"\n선택된 설정:")
     print(f"- 데이터 증강 사용: {'예' if use_augmentation else '아니오'}")
     print(f"- 사용할 데이터셋 비율: {subset_fraction*100}%")
+    print(f"- 샘플 이미지 생성: {'예' if save_images else '아니오'}")
     
     # 디바이스 설정
     device = get_device()
@@ -330,11 +379,17 @@ def main():
         val_losses = []
         best_val_loss = float('inf')
         
+        # 이미지 저장 디렉토리 생성 (이미지 저장 옵션이 선택된 경우에만)
+        if save_images:
+            os.makedirs('sample_images', exist_ok=True)
+            print("\n학습 중 생성된 이미지는 'sample_images' 디렉토리에 저장됩니다.")
+            print("5 에폭마다 샘플 이미지가 저장됩니다.")
+        
         # 학습 루프
         for epoch in range(num_epochs):
             print(f'\nEpoch {epoch+1}/{num_epochs}')
             
-            train_loss = train(model, train_loader, criterion, optimizer, device, scaler)
+            train_loss = train(model, train_loader, criterion, optimizer, device, scaler, save_images, epoch)
             val_loss = validate(model, val_loader, criterion, device)
             
             train_losses.append(train_loss)
