@@ -24,6 +24,14 @@
 ├── checkpoints/       # 모델 체크포인트 저장
 └── requirements.txt   # 필요한 패키지 목록
 ```
+## 데이터 준비
+- https://dacon.io/competitions/official/236420/overview/description
+- data 폴더 생성 후 폴더 내에 데이터 셋 파일 복사
+- git clone 후 폴더 내에 데이터 셋 파일 복사
+```bash
+git clone https://github.com/bunhine0452/dacon236420
+```
+
 
 ## 코드 구조 설명
 
