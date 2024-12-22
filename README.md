@@ -60,13 +60,36 @@
 └── requirements.txt   # 필요한 패키지 목록
 ```
 ## 데이터 준비
-- https://dacon.io/competitions/official/236420/overview/description
-- data 폴더 생성 후 폴더 내에 데이터 셋 파일 복사
-- git clone 후 폴더 내에 데이터 셋 파일 복사
+
+1. **코드 다운로드**
 ```bash
-git clone https://github.com/bunhine0452/dacon236420
+git clone https://github.com/bunhine0452/dacon236420.git
+cd dacon236420
 ```
 
+2. **데이터셋 다운로드**
+- [데이콘 경진대회 페이지](https://dacon.io/competitions/official/236420/data)에서 데이터셋 다운로드
+- 다운로드를 위해서는 데이콘 로그인이 필요합니다
+
+3. **데이터 배치**
+- 프로젝트 루트에 `data` 디렉토리 생성
+```bash
+mkdir data
+```
+- 다운로드 받은 데이터셋의 압축을 풀어 `data` 디렉토리 내에 배치
+- 최종 디렉토리 구조:
+```
+data/
+├── train_input/   # 학습용 입력 이미지
+├── train_gt/      # 학습용 정답 이미지
+├── test_input/    # 테스트용 입력 이미지
+├── train.csv      # 학습 데이터 경로 정보
+└── test.csv       # 테스트 데이터 경로 정보
+```
+
+4. **데이터 구조 확인**
+- train.csv와 test.csv 파일이 올바른 경로 정보를 포함하고 있는지 확인
+- 각 이미지 파일이 지정된 디렉토리에 올바르게 위치하는지 확인
 
 ## 코드 구조 설명
 
