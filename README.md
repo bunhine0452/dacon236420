@@ -148,6 +148,8 @@ conda activate image
 
 # 필요한 패키지 설치
 pip install -r requirements.txt
+# 디코딩 에러시 이용
+pip install -r requirements_ansi.txt
 ```
 
 2. 데이터 준비
