@@ -160,7 +160,7 @@ python src/inference.py
 - `checkpoints/best_model.pth` 사용
 - 결과는 `predictions` 디렉토리에 저장
 
-## 주요 파라미터 수정
+## 주요 파라미터 수정하는법
 
 ### 1. 이미지 크기 변경
 ```python
