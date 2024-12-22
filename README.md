@@ -401,3 +401,7 @@ self.transform = Compose([
 3. **배치 크기**
    - GPU 메모리에 따라 32-64 권장
    - Instance Normalization으로 작은 배치에서도 안정적
+  
+
+#### 실행 화면 샘플
+<img width="943" alt="image" src="https://github.com/user-attachments/assets/f6b61042-1d84-4cd7-b03b-6b6e6f78a0e5" />
