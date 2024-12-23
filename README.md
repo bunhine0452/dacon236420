@@ -463,6 +463,10 @@ python src/train.py  #src 파일 내에서 실행x
 
    # 또는 주석처리
    ```
+# 실행 화면 샘플 스냅샷
+ ![image](https://github.com/user-attachments/assets/a64e5946-d532-4e02-9154-8c777382d517)
+
+  
 # 사진 결과
 - 256x256 해상도로 배치 사이즈 16, 데이터셋 30%만 사용, 데이터 증강 허용으로 epoch30 중에서 5까지의 결과.
 - 1epoch 당 30~40 분 소요 
