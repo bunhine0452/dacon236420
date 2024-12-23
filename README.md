@@ -160,7 +160,8 @@ pip install -r requirements_ansi.txt
 
 ### 1. 학습 실행
 ```bash
-python src/train.py
+cd dacon236420
+python src/train.py  #src 파일 내에서 실행x 
 ```
 
 실행 시 다음과 같은 정보와 선택 사항이 순차적으로 제공됩니다:
