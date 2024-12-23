@@ -464,12 +464,6 @@ python src/train.py
    ```
 
   
-
-#### 실행 화면 샘플
-<img width="943" alt="image" src="https://github.com/user-attachments/assets/f6b61042-1d84-4cd7-b03b-6b6e6f78a0e5" />
-
-
-
 #### Train 실행후 샘플 이미지 저장 해석:
 
 - Input (입력)
