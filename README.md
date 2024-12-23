@@ -469,7 +469,7 @@ self.transform = Compose([
 - windows 환경 pytorch gpu 사용할 때 cuda 버전에 맞는 pytorch 버전 재설치 : 현재 requirement 는 cpu 버전을 설치하고 있습니다.
 - windows 실행 오류 시 train.py 수정.
   ```python
-   # line349
+   # line 454
    model = torch.compile(model, mode='reduce-overhead') # 이부분을
 
    # <수정>

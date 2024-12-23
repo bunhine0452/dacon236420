@@ -41,29 +41,62 @@ def save_sample_images(inputs, outputs, targets, epoch, save_dir='sample_images'
     # 이미지 그리드 생성
     fig, axes = plt.subplots(num_images, 3, figsize=(15, 5*num_images))
     
+    def process_image(img_tensor):
+        """이미지 처리 함수: float64 시도 후 필요시 float32로 전환"""
+        try:
+            # 먼저 float64로 시도
+            img = img_tensor.cpu().detach().numpy().transpose(1, 2, 0).astype(np.float64)
+            
+            # 범위를 벗어나는 값이 있는지 확인
+            if np.any(img < 0) or np.any(img > 1):
+                img = np.clip(img, 0, 1)
+                
+            return img
+            
+        except Exception as e:
+            print(f"float64 처리 중 오류 발생: {str(e)}")
+            print("float32로 전환하여 처리를 시도합니다.")
+            
+            # float32로 재시도
+            img = img_tensor.cpu().detach().numpy().transpose(1, 2, 0).astype(np.float32)
+            
+            # 범위를 벗어나는 값이 있는지 확인
+            if np.any(img < 0) or np.any(img > 1):
+                img = np.clip(img, 0, 1)
+                
+            return img
+    
     for i in range(num_images):
-        # 입력 이미지
-        input_img = inputs[i].cpu().detach().numpy().transpose(1, 2, 0)
-        axes[i, 0].imshow(input_img)
-        axes[i, 0].set_title('Input')
-        axes[i, 0].axis('off')
-        
-        # 복원된 이미지
-        output_img = outputs[i].cpu().detach().numpy().transpose(1, 2, 0)
-        output_img = np.clip(output_img, 0, 1)
-        axes[i, 1].imshow(output_img)
-        axes[i, 1].set_title('Restored')
-        axes[i, 1].axis('off')
-        
-        # 타겟(원본) 이미지
-        target_img = targets[i].cpu().detach().numpy().transpose(1, 2, 0)
-        axes[i, 2].imshow(target_img)
-        axes[i, 2].set_title('Ground Truth')
-        axes[i, 2].axis('off')
+        try:
+            # 입력 이미지
+            input_img = process_image(inputs[i])
+            axes[i, 0].imshow(input_img)
+            axes[i, 0].set_title('Input')
+            axes[i, 0].axis('off')
+            
+            # 복원된 이미지
+            output_img = process_image(outputs[i])
+            axes[i, 1].imshow(output_img)
+            axes[i, 1].set_title('Restored')
+            axes[i, 1].axis('off')
+            
+            # 타겟(원본) 이미지
+            target_img = process_image(targets[i])
+            axes[i, 2].imshow(target_img)
+            axes[i, 2].set_title('Ground Truth')
+            axes[i, 2].axis('off')
+            
+        except Exception as e:
+            print(f"이미지 {i} 처리 중 오류 발생: {str(e)}")
+            continue
     
     plt.tight_layout()
-    plt.savefig(f'{save_dir}/epoch_{epoch+1}.png')
-    plt.close()
+    try:
+        plt.savefig(f'{save_dir}/epoch_{epoch+1}.png')
+    except Exception as e:
+        print(f"이미지 저장 중 오류 발생: {str(e)}")
+    finally:
+        plt.close()
 
 def train(model, train_loader, criterion, optimizer, device, scaler=None, save_images=False, epoch=0):
     model.train()
@@ -232,9 +265,86 @@ def main():
         if gpu_info['gpu_memory']:
             print(f"GPU 메모리: {gpu_info['gpu_memory']}GB")
     
-    # 디이터 증강 여부 선택
+    # 기본 하이퍼파라미터 설정
+    num_epochs = 30  # 에폭 수
+    learning_rate = 0.001
+    
+    # 이미지 해상도 선택
+    print("\n이미지 해상도 선택:")
+    print("1) 128 x 128 (빠른 학습, 낮은 품질)")
+    print("2) 256 x 256 (중간 속도, 중간 품질)")
+    print("3) 512 x 512 (느린 학습, 원본 품질)")
+    
     while True:
-        aug_input = input("데이터 증강을 사용하시겠습니까? (y/n): ").lower()
+        try:
+            resolution_choice = int(input("해상도를 선택하세요 (1-3): "))
+            if resolution_choice in [1, 2, 3]:
+                img_size = {1: 128, 2: 256, 3: 512}[resolution_choice]
+                # 해상도에 따른 기본 배치 크기 설정
+                suggested_batch_size = {1: 32, 2: 16, 3: 8}[resolution_choice]
+                break
+            print("1에서 3 사이의 숫자를 입력해주세요.")
+        except ValueError:
+            print("올바른 숫자를 입력해주세요.")
+    
+    print(f"\n선택된 이미지 해상도: {img_size} x {img_size}")
+    
+    # 배치 크기 설정
+    print("\n배치 크기 설정:")
+    print(f"권장 배치 크기: {suggested_batch_size} (선택한 해상도 {img_size}x{img_size}에 최적화)")
+    while True:
+        try:
+            batch_input = input(f"배치 크기를 입력하세요 (기본값: {suggested_batch_size}): ").strip()
+            if batch_input == "":
+                batch_size = suggested_batch_size
+                break
+            batch_size = int(batch_input)
+            if batch_size > 0:
+                break
+            print("배치 크기는 양수여야 합니다.")
+        except ValueError:
+            print("올바른 숫자를 입력해주세요.")
+    
+    # GPU 메모리 요구사항 계산 및 경고
+    if gpu_info['cuda_available'] and gpu_info['gpu_memory']:
+        # 모델 파라미터와 옵티마이저 상태를 고려한 추가 메모리
+        model_memory = 0.5  # 예상 모델 기본 메모리 (GB)
+        estimated_memory = (img_size * img_size * 3 * 4 * batch_size * 3) / (1024 * 1024 * 1024) + model_memory  # GB
+        print(f"\n예상 GPU 메모리 사용량: {estimated_memory:.1f}GB")
+        print(f"사용 가능한 GPU 메모리: {gpu_info['gpu_memory']:.1f}GB")
+        
+        if estimated_memory > gpu_info['gpu_memory'] * 0.7:  # 70% 이상 사용 시 경고
+            print("\n경고: 선택한 설정이 GPU 메모리를 많이 사용할 수 있습니다.")
+            print(f"권장 배치 크기: {suggested_batch_size}")
+            print("다음 옵션 중 선택해주세요:")
+            print("1) 배치 크기 줄이기")
+            print("2) 더 낮은 해상도 선택하기")
+            print("3) 현재 설정으로 계속하기")
+            
+            while True:
+                choice = input("선택 (1-3): ").strip()
+                if choice == "1":
+                    while True:
+                        try:
+                            new_batch = int(input(f"새로운 배치 크기 (권장: {suggested_batch_size} 이하): "))
+                            if new_batch > 0:
+                                batch_size = new_batch
+                                break
+                        except ValueError:
+                            print("올바른 숫자를 입력해주세요.")
+                    break
+                elif choice == "2":
+                    return main()  # 처음부터 다시 시작
+                elif choice == "3":
+                    break
+                else:
+                    print("1-3 사이의 숫자를 입력해주세요.")
+    
+    print(f"\n최종 설정된 배치 크기: {batch_size}")
+    
+    # 데이터 증강 여부 선택
+    while True:
+        aug_input = input("\n데이터 증강을 사용하시겠습니까? (y/n): ").lower()
         if aug_input in ['y', 'n']:
             use_augmentation = (aug_input == 'y')
             break
@@ -272,18 +382,13 @@ def main():
     num_workers = get_optimal_num_workers()
     print(f"Number of workers: {num_workers}")
     
-    # 하이퍼파라미터 설정
-    batch_size = 32  # 배치 크기
-    num_epochs = 30  # 에폭 수 감소
-    learning_rate = 0.001
-    
     try:
         # 데이터셋 및 데이터로더 설정
         train_dataset = ImageDataset('data/train.csv', train=True, val=False, 
-                                   img_size=128, use_augmentation=use_augmentation,
+                                   img_size=img_size, use_augmentation=use_augmentation,
                                    subset_fraction=subset_fraction)
         val_dataset = ImageDataset('data/train.csv', train=True, val=True, 
-                                 img_size=128, use_augmentation=False,
+                                 img_size=img_size, use_augmentation=False,
                                  subset_fraction=subset_fraction)
         
         print(f"\n데이터셋 정보:")
@@ -322,7 +427,7 @@ def main():
         # 예상 학습 시간 계산
         batch_time = estimate_batch_time(
             device.type, cpu_info, gpu_info,
-            img_size=128, batch_size=batch_size
+            img_size=img_size, batch_size=batch_size
         )
         estimated_time_per_epoch = len(train_loader) * batch_time
         estimated_total_time = estimated_time_per_epoch * num_epochs
@@ -347,6 +452,7 @@ def main():
         if device.type == 'cuda' and torch.__version__ >= "2.0.0":
             try:
                 model = torch.compile(model, mode='reduce-overhead')
+                #model = torch.compile(model, mode='default')
                 print("Model compilation successful")
             except Exception as e:
                 print(f"Model compilation failed: {str(e)}")
