@@ -9,6 +9,7 @@ class VGGPerceptualLoss(nn.Module):
         vgg = models.vgg16(pretrained=True).features
         self.slice1 = vgg[:4]  # conv1_2
         self.slice2 = vgg[4:9]  # conv2_2
+        self.slice3 = vgg[9:16] # conv3_3 추가
         
         for param in self.parameters():
             param.requires_grad = False
@@ -30,12 +31,17 @@ class VGGPerceptualLoss(nn.Module):
         y1 = self.slice1(y)
         x2 = self.slice2(x1)
         y2 = self.slice2(y1)
+        x3 = self.slice3(x2)
+        y3 = self.slice3(y2)
         
-        loss = F.l1_loss(x1, y1) + F.l1_loss(x2, y2)
+        # 각 레이어의 특징에 다른 가중치 적용
+        loss = (0.5 * F.l1_loss(x1, y1) + 
+                0.7 * F.l1_loss(x2, y2) + 
+                1.0 * F.l1_loss(x3, y3))
         return loss
 
 class CombinedLoss(nn.Module):
-    def __init__(self, lambda_perceptual=0.05, lambda_l1=1.0):  # perceptual loss 비중 감소
+    def __init__(self, lambda_perceptual=0.2, lambda_l1=1.0):  # perceptual loss 비중 증가
         super().__init__()
         self.perceptual = VGGPerceptualLoss()
         self.l1 = nn.L1Loss()

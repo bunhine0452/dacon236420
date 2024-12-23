@@ -28,8 +28,10 @@ def get_optimal_num_workers():
     """시스템에 따른 최적의 worker 수 반환"""
     if platform.system() == 'Windows':
         return 0  # Windows에서는 0이 더 안정적
+    elif platform.system() == 'Darwin':  # macOS
+        return 0  # Mac에서도 일단 0으로 설정
     else:
-        return min(os.cpu_count(), 4)  # CPU 코어 수와 4 중 작은 값 사용
+        return min(os.cpu_count(), 4)  # Linux 등에서는 CPU 코어 수와 4 중 작은 값 사용
 
 def save_sample_images(inputs, outputs, targets, epoch, save_dir='sample_images'):
     """학습 중 샘플 이미지 저장 함수"""
@@ -402,9 +404,8 @@ def main():
             batch_size=batch_size,
             shuffle=True,
             num_workers=num_workers,
-            pin_memory=True if device.type != 'cpu' else False,
-            persistent_workers=True if num_workers > 0 else False,
-            prefetch_factor=2 if num_workers > 0 else None,
+            pin_memory=True if device.type == 'cuda' else False,  # CUDA에서만 pin_memory 사용
+            persistent_workers=False,  # worker 관련 문제 해결을 위해 비활성화
             drop_last=True
         )
         
@@ -413,9 +414,8 @@ def main():
             batch_size=batch_size,
             shuffle=False,
             num_workers=num_workers,
-            pin_memory=True if device.type != 'cpu' else False,
-            persistent_workers=True if num_workers > 0 else False,
-            prefetch_factor=2 if num_workers > 0 else None,
+            pin_memory=True if device.type == 'cuda' else False,  # CUDA에서만 pin_memory 사용
+            persistent_workers=False,  # worker 관련 문제 해결을 위해 비활성화
             drop_last=True
         )
         
@@ -452,7 +452,6 @@ def main():
         if device.type == 'cuda' and torch.__version__ >= "2.0.0":
             try:
                 model = torch.compile(model, mode='reduce-overhead')
-                #model = torch.compile(model, mode='default')
                 print("Model compilation successful")
             except Exception as e:
                 print(f"Model compilation failed: {str(e)}")
@@ -467,11 +466,14 @@ def main():
             lr=learning_rate,
             weight_decay=0.01
         )
-        scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        scheduler = optim.lr_scheduler.OneCycleLR(
             optimizer,
-            T_0=10,
-            T_mult=2,
-            eta_min=1e-6
+            max_lr=learning_rate,
+            epochs=num_epochs,
+            steps_per_epoch=len(train_loader),
+            pct_start=0.3,  # warm-up 구간
+            div_factor=25,  # 초기 학습률 = max_lr/25
+            final_div_factor=1000,  # 최종 학습률 = max_lr/1000
         )
         
         # Mixed Precision Training을 위한 scaler (CUDA only)
