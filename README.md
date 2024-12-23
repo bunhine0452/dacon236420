@@ -463,7 +463,8 @@ python src/train.py
    # 또는 주석처리
    ```
 # 사진 결과
-- 256x256 해상도로 배치 사이즈 16, 데이터셋 30%만 사용, 데이터 증강 허용으로 epoch30 중에서 5까지의 결과. 
+- 256x256 해상도로 배치 사이즈 16, 데이터셋 30%만 사용, 데이터 증강 허용으로 epoch30 중에서 5까지의 결과.
+- 1epoch 당 30~40 분 소요 
   ![epoch_5](https://github.com/user-attachments/assets/a76e971f-ffcd-442d-84bd-56f9dc423b0e)
 
 #### Train 실행후 샘플 이미지 저장 해석:
