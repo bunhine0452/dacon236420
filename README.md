@@ -153,6 +153,13 @@ conda activate image
 pip install -r requirements.txt
 # 디코딩 에러시 이용
 pip install -r requirements_ansi.txt
+
+# windows 경우 cuda 버전에 알맞는 torch 버전 설치
+
+pip uninstall torch torchvision
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# 이 명령어는 제 pc환경 cuda 버전:12.7에 사용했습니다.
+# cuda는 하위 버전 호환 가능 12.7 > cu121(cuda12.1)
 ```
 
 2. 데이터 준비
