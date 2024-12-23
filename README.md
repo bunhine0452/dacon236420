@@ -171,7 +171,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 ### 1. 학습 실행
 ```bash
 cd dacon236420
-python src/train.py  #src 파일 내에서 실행x 
+python src/train.py  #src 파일 내에서 실행이 아니라 dacon236420파일에서 실행됩니다. cd src 하거나 그냥 train.py를 직접 실행시킬경우 경로 오류 발생 
 ```
 
 실행 시 다음과 같은 정보와 선택 사항이 순차적으로 제공됩니다:
