@@ -12,8 +12,7 @@ import torchvision.utils as vutils
 import numpy as np
 
 from datasets.dataset import ImageDataset
-from models.unet import ImprovedUNet
-from models.losses import CombinedLoss
+from models.colorization.pix2pix import Pix2Pix
 
 def get_device():
     """시스템 환경에 따른 적절한 디바이스 반환"""
@@ -43,47 +42,24 @@ def save_sample_images(inputs, outputs, targets, epoch, save_dir='sample_images'
     # 이미지 그리드 생성
     fig, axes = plt.subplots(num_images, 3, figsize=(15, 5*num_images))
     
-    def process_image(img_tensor):
-        """이미지 처리 함수: float64 시도 후 필요시 float32로 전환"""
-        try:
-            # 먼저 float64로 시도
-            img = img_tensor.cpu().detach().numpy().transpose(1, 2, 0).astype(np.float64)
-            
-            # 범위를 벗어나는 값이 있는지 확인
-            if np.any(img < 0) or np.any(img > 1):
-                img = np.clip(img, 0, 1)
-                
-            return img
-            
-        except Exception as e:
-            print(f"float64 처리 중 오류 발생: {str(e)}")
-            print("float32로 전환하여 처리를 시도합니다.")
-            
-            # float32로 재시도
-            img = img_tensor.cpu().detach().numpy().transpose(1, 2, 0).astype(np.float32)
-            
-            # 범위를 벗어나는 값이 있는지 확인
-            if np.any(img < 0) or np.any(img > 1):
-                img = np.clip(img, 0, 1)
-                
-            return img
-    
     for i in range(num_images):
         try:
-            # 입력 이미지
-            input_img = process_image(inputs[i])
+            # 입력 이미지 (흑백)
+            input_img = inputs[i].cpu().detach().numpy().transpose(1, 2, 0)
+            input_img = np.repeat(input_img, 3, axis=2)  # 흑백을 3채널로 변환
             axes[i, 0].imshow(input_img)
-            axes[i, 0].set_title('Input')
+            axes[i, 0].set_title('Grayscale Input')
             axes[i, 0].axis('off')
             
-            # 복원된 이미지
-            output_img = process_image(outputs[i])
+            # 생성된 컬러 이미지
+            output_img = outputs[i].cpu().detach().numpy().transpose(1, 2, 0)
+            output_img = np.clip(output_img, 0, 1)
             axes[i, 1].imshow(output_img)
-            axes[i, 1].set_title('Restored')
+            axes[i, 1].set_title('Generated Color')
             axes[i, 1].axis('off')
             
-            # 타겟(원본) 이미지
-            target_img = process_image(targets[i])
+            # 실제 컬러 이미지
+            target_img = targets[i].cpu().detach().numpy().transpose(1, 2, 0)
             axes[i, 2].imshow(target_img)
             axes[i, 2].set_title('Ground Truth')
             axes[i, 2].axis('off')
@@ -93,45 +69,44 @@ def save_sample_images(inputs, outputs, targets, epoch, save_dir='sample_images'
             continue
     
     plt.tight_layout()
-    try:
-        plt.savefig(f'{save_dir}/epoch_{epoch+1}.png')
-    except Exception as e:
-        print(f"이미지 저장 중 오류 발생: {str(e)}")
-    finally:
-        plt.close()
+    plt.savefig(f'{save_dir}/epoch_{epoch+1}.png')
+    plt.close()
 
-def train(model, train_loader, criterion, optimizer, device, scaler=None, save_images=False, epoch=0):
+def train(model, train_loader, device, scaler=None, save_images=False, epoch=0):
     model.train()
-    total_loss = 0
+    total_gen_loss = 0
+    total_disc_loss = 0
     
     with tqdm(train_loader, desc='Training') as pbar:
-        for batch_idx, (inputs, targets) in enumerate(pbar):
+        for batch_idx, (gray_images, color_images) in enumerate(pbar):
             try:
-                inputs = inputs.to(device, non_blocking=True)
-                targets = targets.to(device, non_blocking=True)
+                gray_images = gray_images.to(device, non_blocking=True)
+                color_images = color_images.to(device, non_blocking=True)
                 
-                optimizer.zero_grad()
+                # Convert RGB to Grayscale if needed
+                if gray_images.shape[1] == 3:
+                    gray_images = 0.299 * gray_images[:, 0] + 0.587 * gray_images[:, 1] + 0.114 * gray_images[:, 2]
+                    gray_images = gray_images.unsqueeze(1)
                 
                 if device.type == 'cuda':
                     with autocast():
-                        outputs = model(inputs)
-                        loss = criterion(outputs, targets)
-                    
-                    scaler.scale(loss).backward()
-                    scaler.step(optimizer)
-                    scaler.update()
+                        losses = model.train_step(gray_images, color_images)
                 else:
-                    outputs = model(inputs)
-                    loss = criterion(outputs, targets)
-                    loss.backward()
-                    optimizer.step()
+                    losses = model.train_step(gray_images, color_images)
                 
-                total_loss += loss.item()
-                pbar.set_postfix({'loss': loss.item()})
+                total_gen_loss += losses['gen_loss']
+                total_disc_loss += losses['disc_loss']
+                
+                pbar.set_postfix({
+                    'gen_loss': losses['gen_loss'],
+                    'disc_loss': losses['disc_loss']
+                })
                 
                 # 이미지 저장 옵션이 활성화된 경우에만 저장
                 if save_images and batch_idx == 0 and (epoch + 1) % 5 == 0:
-                    save_sample_images(inputs, outputs, targets, epoch)
+                    with torch.no_grad():
+                        fake_color = model.generate(gray_images)
+                        save_sample_images(gray_images, fake_color, color_images, epoch)
                 
             except RuntimeError as e:
                 print(f"Error during training: {str(e)}")
@@ -143,29 +118,48 @@ def train(model, train_loader, criterion, optimizer, device, scaler=None, save_i
                 else:
                     raise e
     
-    return total_loss / len(train_loader)
+    return {
+        'gen_loss': total_gen_loss / len(train_loader),
+        'disc_loss': total_disc_loss / len(train_loader)
+    }
 
-def validate(model, val_loader, criterion, device):
+def validate(model, val_loader, device):
     model.eval()
-    total_loss = 0
+    total_gen_loss = 0
+    total_disc_loss = 0
     
     with torch.no_grad():
         with tqdm(val_loader, desc='Validation') as pbar:
-            for inputs, targets in pbar:
+            for gray_images, color_images in pbar:
                 try:
-                    inputs = inputs.to(device, non_blocking=True)
-                    targets = targets.to(device, non_blocking=True)
+                    gray_images = gray_images.to(device, non_blocking=True)
+                    color_images = color_images.to(device, non_blocking=True)
                     
-                    if device.type == 'cuda':
-                        with autocast():
-                            outputs = model(inputs)
-                            loss = criterion(outputs, targets)
-                    else:
-                        outputs = model(inputs)
-                        loss = criterion(outputs, targets)
+                    # Convert RGB to Grayscale if needed
+                    if gray_images.shape[1] == 3:
+                        gray_images = 0.299 * gray_images[:, 0] + 0.587 * gray_images[:, 1] + 0.114 * gray_images[:, 2]
+                        gray_images = gray_images.unsqueeze(1)
                     
-                    total_loss += loss.item()
-                    pbar.set_postfix({'loss': loss.item()})
+                    fake_color = model.generate(gray_images)
+                    disc_real = model.discriminator(gray_images, color_images)
+                    disc_fake = model.discriminator(gray_images, fake_color)
+                    
+                    # Calculate losses
+                    disc_real_loss = model.bce_loss(disc_real, torch.ones_like(disc_real))
+                    disc_fake_loss = model.bce_loss(disc_fake, torch.zeros_like(disc_fake))
+                    disc_loss = (disc_real_loss + disc_fake_loss) / 2
+                    
+                    gen_adversarial_loss = model.bce_loss(disc_fake, torch.ones_like(disc_fake))
+                    gen_l1_loss = model.l1_loss(fake_color, color_images) * model.lambda_l1
+                    gen_loss = gen_adversarial_loss + gen_l1_loss
+                    
+                    total_gen_loss += gen_loss.item()
+                    total_disc_loss += disc_loss.item()
+                    
+                    pbar.set_postfix({
+                        'gen_loss': gen_loss.item(),
+                        'disc_loss': disc_loss.item()
+                    })
                     
                 except RuntimeError as e:
                     print(f"Error during validation: {str(e)}")
@@ -177,15 +171,31 @@ def validate(model, val_loader, criterion, device):
                     else:
                         raise e
     
-    return total_loss / len(val_loader)
+    return {
+        'gen_loss': total_gen_loss / len(val_loader),
+        'disc_loss': total_disc_loss / len(val_loader)
+    }
 
-def plot_losses(train_losses, val_losses):
+def plot_losses(gen_losses, disc_losses, val_gen_losses, val_disc_losses):
     plt.figure(figsize=(10, 5))
-    plt.plot(train_losses, label='Train Loss')
-    plt.plot(val_losses, label='Validation Loss')
+    
+    plt.subplot(1, 2, 1)
+    plt.plot(gen_losses, label='Train Generator Loss')
+    plt.plot(val_gen_losses, label='Val Generator Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.legend()
+    plt.title('Generator Losses')
+    
+    plt.subplot(1, 2, 2)
+    plt.plot(disc_losses, label='Train Discriminator Loss')
+    plt.plot(val_disc_losses, label='Val Discriminator Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.title('Discriminator Losses')
+    
+    plt.tight_layout()
     plt.savefig('loss_plot.png')
     plt.close()
 
@@ -424,134 +434,86 @@ def main():
         print(f"총 배치 수 (검증): {len(val_loader)}")
         print(f"총 에폭 수: {num_epochs}")
         
-        # 예상 학습 시간 계산
-        batch_time = estimate_batch_time(
-            device.type, cpu_info, gpu_info,
-            img_size=img_size, batch_size=batch_size
-        )
-        estimated_time_per_epoch = len(train_loader) * batch_time
-        estimated_total_time = estimated_time_per_epoch * num_epochs
+        # 예크포인트 확인 및 모델 초기화
+        checkpoint_path = 'checkpoints/interrupted_model.pth'
+        start_epoch = 0
+        gen_losses = []
+        disc_losses = []
+        val_gen_losses = []
+        val_disc_losses = []
         
-        print(f"\n학습 시간 예측:")
-        print(f"- 배치당 예상 시간: {batch_time:.3f}초")
-        print(f"- 에폭당 예상 시간: {estimated_time_per_epoch/60:.1f}분")
-        print(f"- 전체 예상 시간: {estimated_total_time/3600:.1f}시간 ({estimated_total_time/60:.1f}분)")
+        model = Pix2Pix(lr=learning_rate).to(device)
         
-        # 학습 시작 확인
-        while True:
-            confirm = input("\n이대로 학습을 시작하시겠습니까? (y/n): ").lower()
-            if confirm in ['y', 'n']:
-                if confirm == 'n':
-                    print("학습이 취소되었습니다.")
-                    return
-                break
-            print("잘못된 입력입니다. 'y' 또는 'n'을 입력해주세요.")
-        
-        # 모델 설정
-        model = ImprovedUNet().to(device)
-        if device.type == 'cuda' and torch.__version__ >= "2.0.0":
-            try:
-                model = torch.compile(model, mode='reduce-overhead')
-                print("Model compilation successful")
-            except Exception as e:
-                print(f"Model compilation failed: {str(e)}")
-        
-        # 메모리 사용량 최적화를 위한 torch.cuda.empty_cache() 호출
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        
-        criterion = CombinedLoss().to(device)
-        optimizer = optim.AdamW(
-            model.parameters(),
-            lr=learning_rate,
-            weight_decay=0.01
-        )
-        scheduler = optim.lr_scheduler.OneCycleLR(
-            optimizer,
-            max_lr=learning_rate,
-            epochs=num_epochs,
-            steps_per_epoch=len(train_loader),
-            pct_start=0.3,  # warm-up 구간
-            div_factor=25,  # 초기 학습률 = max_lr/25
-            final_div_factor=1000,  # 최종 학습률 = max_lr/1000
-        )
-        
-        # Mixed Precision Training을 위한 scaler (CUDA only)
-        scaler = GradScaler() if device.type == 'cuda' else None
-        
-        # 체크포인트 디렉토리 생성
-        os.makedirs('checkpoints', exist_ok=True)
-        
-        # 학습 기록
-        train_losses = []
-        val_losses = []
-        best_val_loss = float('inf')
-        
-        # 이미지 저장 디렉토리 생성 (이미지 저장 옵션이 선택된 경우에만)
-        if save_images:
-            os.makedirs('sample_images', exist_ok=True)
-            print("\n학습 중 생성된 이미지는 'sample_images' 디렉토리에 저장됩니다.")
-            print("5 에폭마다 샘플 이미지가 저장됩니다.")
+        if os.path.exists(checkpoint_path):
+            print(f"\n중단된 학습 체크포인트를 발견했습니다: {checkpoint_path}")
+            while True:
+                resume = input("중단된 학습을 이어서 하시겠습니까? (y/n): ").lower()
+                if resume in ['y', 'n']:
+                    break
+                print("잘못된 입력입니다. 'y' 또는 'n'을 입력해주세요.")
+            
+            if resume == 'y':
+                try:
+                    print("체크포인트를 로드합니다...")
+                    model.load_checkpoint(checkpoint_path, device)
+                    checkpoint = torch.load(checkpoint_path, map_location=device)
+                    start_epoch = checkpoint.get('epoch', 0)
+                    gen_losses = checkpoint.get('gen_losses', [])
+                    disc_losses = checkpoint.get('disc_losses', [])
+                    val_gen_losses = checkpoint.get('val_gen_losses', [])
+                    val_disc_losses = checkpoint.get('val_disc_losses', [])
+                    
+                    print(f"체크포인트 로드 완료. {start_epoch}번째 에폭부터 학습을 재개합니다.")
+                    
+                except Exception as e:
+                    print(f"체크포인트 로드 중 오류 발생: {str(e)}")
+                    print("새로운 학습을 시작합니다.")
+                    model = Pix2Pix(lr=learning_rate).to(device)
         
         # 학습 루프
-        for epoch in range(num_epochs):
+        for epoch in range(start_epoch, num_epochs):
             print(f'\nEpoch {epoch+1}/{num_epochs}')
             
-            train_loss = train(model, train_loader, criterion, optimizer, device, scaler, save_images, epoch)
-            val_loss = validate(model, val_loader, criterion, device)
+            train_losses = train(model, train_loader, device, save_images, epoch)
+            val_losses = validate(model, val_loader, device)
             
-            train_losses.append(train_loss)
-            val_losses.append(val_loss)
+            gen_losses.append(train_losses['gen_loss'])
+            disc_losses.append(train_losses['disc_loss'])
+            val_gen_losses.append(val_losses['gen_loss'])
+            val_disc_losses.append(val_losses['disc_loss'])
             
-            print(f'Training Loss: {train_loss:.4f}')
-            print(f'Validation Loss: {val_loss:.4f}')
+            print(f'Training Generator Loss: {train_losses["gen_loss"]:.4f}')
+            print(f'Training Discriminator Loss: {train_losses["disc_loss"]:.4f}')
+            print(f'Validation Generator Loss: {val_losses["gen_loss"]:.4f}')
+            print(f'Validation Discriminator Loss: {val_losses["disc_loss"]:.4f}')
             
-            # 학습률 조정
-            scheduler.step()
+            # 중간 체크포인트 저장
+            try:
+                checkpoint = {
+                    'epoch': epoch + 1,
+                    'gen_losses': gen_losses,
+                    'disc_losses': disc_losses,
+                    'val_gen_losses': val_gen_losses,
+                    'val_disc_losses': val_disc_losses,
+                }
+                model.save_checkpoint('checkpoints/interrupted_model.pth')
+                torch.save(checkpoint, 'checkpoints/training_state.pth')
+            except Exception as e:
+                print(f"Error saving checkpoint: {str(e)}")
             
-            # 체크포인트 저장
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                try:
-                    torch.save({
-                        'epoch': epoch + 1,
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
-                        'train_loss': train_loss,
-                        'val_loss': val_loss,
-                    }, 'checkpoints/best_model.pth')
-                    print(f'Saved best model with validation loss: {val_loss:.4f}')
-                except Exception as e:
-                    print(f"Error saving checkpoint: {str(e)}")
-            
-            # 매 10 에폭마다 체크포인트 저장
+            # 매 10 에폭마다 체크포인트와 손실 그래프 저장
             if (epoch + 1) % 10 == 0:
                 try:
-                    torch.save({
-                        'epoch': epoch + 1,
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
-                        'train_loss': train_loss,
-                        'val_loss': val_loss,
-                    }, f'checkpoints/model_epoch_{epoch+1}.pth')
+                    model.save_checkpoint(f'checkpoints/model_epoch_{epoch+1}.pth')
+                    plot_losses(gen_losses, disc_losses, val_gen_losses, val_disc_losses)
                     print(f'Saved checkpoint at epoch {epoch+1}')
-                    
-                    # 손실 그래프 저장
-                    plot_losses(train_losses, val_losses)
                 except Exception as e:
                     print(f"Error saving checkpoint: {str(e)}")
-                    
+        
     except KeyboardInterrupt:
         print("\n학습이 사용자에 의해 중단되었습니다.")
-        # 마지막 체크포인트 저장
         try:
-            torch.save({
-                'epoch': epoch + 1,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'train_loss': train_loss,
-                'val_loss': val_loss,
-            }, 'checkpoints/interrupted_model.pth')
+            model.save_checkpoint('checkpoints/interrupted_model.pth')
             print("중단된 모델이 저장되었습니다.")
         except Exception as e:
             print(f"Error saving interrupted model: {str(e)}")
